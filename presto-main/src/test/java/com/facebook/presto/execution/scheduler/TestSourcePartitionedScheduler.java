@@ -37,7 +37,6 @@ import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.connector.ConnectorPartitionHandle;
-import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.split.ConnectorAwareSplitSource;
 import com.facebook.presto.split.SplitSource;
 import com.facebook.presto.sql.planner.Partitioning;
@@ -81,6 +80,7 @@ import static com.facebook.presto.spi.connector.NotPartitionedPartitionHandle.NO
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
+import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.GATHER;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.INNER;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
@@ -431,12 +431,9 @@ public class TestSourcePartitionedScheduler
                 tableScanNodeId,
                 new TableHandle(CONNECTOR_ID, new TestingTableHandle()),
                 ImmutableList.of(symbol),
-                ImmutableMap.of(symbol, new TestingColumnHandle("column")),
-                Optional.empty(),
-                TupleDomain.all(),
-                null);
+                ImmutableMap.of(symbol, new TestingColumnHandle("column")));
 
-        RemoteSourceNode remote = new RemoteSourceNode(new PlanNodeId("remote_id"), new PlanFragmentId("plan_fragment_id"), ImmutableList.of(), Optional.empty());
+        RemoteSourceNode remote = new RemoteSourceNode(new PlanNodeId("remote_id"), new PlanFragmentId("plan_fragment_id"), ImmutableList.of(), Optional.empty(), GATHER);
         PlanFragment testFragment = new PlanFragment(
                 new PlanFragmentId("plan_id"),
                 new JoinNode(new PlanNodeId("join_id"),
@@ -451,7 +448,7 @@ public class TestSourcePartitionedScheduler
                         Optional.empty(),
                         Optional.empty(),
                         Optional.empty(),
-                        Optional.of(JoinNode.DistributionType.PARTITIONED)),
+                        Optional.empty()),
                 ImmutableMap.of(symbol, VARCHAR),
                 SOURCE_DISTRIBUTION,
                 ImmutableList.of(tableScanNodeId),

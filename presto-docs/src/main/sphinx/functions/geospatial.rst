@@ -22,27 +22,35 @@ Presto Geospatial functions support the Well-Known Text (WKT) form of spatial ob
 Constructors
 ------------
 
-.. function:: ST_Point(double, double) -> Point
+.. function:: ST_AsBinary(Geometry) -> varbinary
 
-    Returns a geometry type point object with the given coordinate values.
-
-.. function:: ST_LineFromText(varchar) -> LineString
-
-    Returns a geometry type linestring object from WKT representation.
-
-.. function:: ST_Polygon(varchar) -> Polygon
-
-    Returns a geometry type polygon object from WKT representation.
-
-.. function:: ST_GeometryFromText(varchar) -> Geometry
-
-    Returns a geometry type object from WKT representation.
+    Returns the WKB representation of the geometry.
 
 .. function:: ST_AsText(Geometry) -> varchar
 
     Returns the WKT representation of the geometry. For empty geometries,
     ``ST_AsText(ST_LineFromText('LINESTRING EMPTY'))`` will produce ``'MULTILINESTRING EMPTY'``
     and ``ST_AsText(ST_Polygon('POLYGON EMPTY'))`` will produce ``'MULTIPOLYGON EMPTY'``.
+
+.. function:: ST_GeometryFromText(varchar) -> Geometry
+
+    Returns a geometry type object from WKT representation.
+
+.. function:: ST_GeomFromBinary(varbinary) -> Geometry
+
+    Returns a geometry type object from WKB representation.
+
+.. function:: ST_LineFromText(varchar) -> LineString
+
+    Returns a geometry type linestring object from WKT representation.
+
+.. function:: ST_Point(double, double) -> Point
+
+    Returns a geometry type point object with the given coordinate values.
+
+.. function:: ST_Polygon(varchar) -> Polygon
+
+    Returns a geometry type polygon object from WKT representation.
 
 Relationship Tests
 ------------------

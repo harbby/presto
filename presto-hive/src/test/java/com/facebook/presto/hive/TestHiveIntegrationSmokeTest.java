@@ -94,7 +94,9 @@ import static com.facebook.presto.testing.assertions.Assert.assertEquals;
 import static com.facebook.presto.tests.QueryAssertions.assertEqualsIgnoreOrder;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static com.google.common.io.Files.asCharSink;
 import static com.google.common.io.Files.createTempDir;
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
@@ -919,6 +921,34 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
+    public void testCreateEmptyBucketedPartition()
+    {
+        for (TestingHiveStorageFormat storageFormat : getAllTestingHiveStorageFormat()) {
+            testCreateEmptyBucketedPartition(storageFormat.getFormat());
+        }
+    }
+
+    public void testCreateEmptyBucketedPartition(HiveStorageFormat storageFormat)
+    {
+        String tableName = "test_insert_empty_partitioned_bucketed_table";
+        createPartitionedBucketedTable(tableName, storageFormat);
+
+        List<String> orderStatusList = ImmutableList.of("F", "O", "P");
+        for (int i = 0; i < orderStatusList.size(); i++) {
+            String sql = format("CALL system.create_empty_partition('%s', '%s', ARRAY['orderstatus'], ARRAY['%s'])", TPCH_SCHEMA, tableName, orderStatusList.get(i));
+            assertUpdate(sql);
+            assertQuery(
+                    format("SELECT count(*) FROM \"%s$partitions\"", tableName),
+                    "SELECT " + (i + 1));
+
+            assertQueryFails(sql, "Partition already exists.*");
+        }
+
+        assertUpdate("DROP TABLE " + tableName);
+        assertFalse(getQueryRunner().tableExists(getSession(), tableName));
+    }
+
+    @Test
     public void testInsertPartitionedBucketedTable()
     {
         testInsertPartitionedBucketedTable(HiveStorageFormat.RCBINARY);
@@ -927,20 +957,9 @@ public class TestHiveIntegrationSmokeTest
     private void testInsertPartitionedBucketedTable(HiveStorageFormat storageFormat)
     {
         String tableName = "test_insert_partitioned_bucketed_table";
+        createPartitionedBucketedTable(tableName, storageFormat);
 
-        assertUpdate("" +
-                "CREATE TABLE " + tableName + " (" +
-                "  custkey bigint," +
-                "  custkey2 bigint," +
-                "  comment varchar," +
-                "  orderstatus varchar)" +
-                "WITH (" +
-                "format = '" + storageFormat + "', " +
-                "partitioned_by = ARRAY[ 'orderstatus' ], " +
-                "bucketed_by = ARRAY[ 'custkey', 'custkey2' ], " +
-                "bucket_count = 11)");
-
-        ImmutableList<String> orderStatusList = ImmutableList.of("F", "O", "P");
+        List<String> orderStatusList = ImmutableList.of("F", "O", "P");
         for (int i = 0; i < orderStatusList.size(); i++) {
             String orderStatus = orderStatusList.get(i);
             assertUpdate(
@@ -959,6 +978,21 @@ public class TestHiveIntegrationSmokeTest
 
         assertUpdate("DROP TABLE " + tableName);
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
+    }
+
+    private void createPartitionedBucketedTable(String tableName, HiveStorageFormat storageFormat)
+    {
+        assertUpdate("" +
+                "CREATE TABLE " + tableName + " (" +
+                "  custkey bigint," +
+                "  custkey2 bigint," +
+                "  comment varchar," +
+                "  orderstatus varchar)" +
+                "WITH (" +
+                "format = '" + storageFormat + "', " +
+                "partitioned_by = ARRAY[ 'orderstatus' ], " +
+                "bucketed_by = ARRAY[ 'custkey', 'custkey2' ], " +
+                "bucket_count = 11)");
     }
 
     @Test
@@ -983,7 +1017,7 @@ public class TestHiveIntegrationSmokeTest
                 "bucketed_by = ARRAY[ 'custkey', 'custkey2' ], " +
                 "bucket_count = 11)");
 
-        ImmutableList<String> orderStatusList = ImmutableList.of("F", "O", "P");
+        List<String> orderStatusList = ImmutableList.of("F", "O", "P");
         for (int i = 0; i < orderStatusList.size(); i++) {
             String orderStatus = orderStatusList.get(i);
             assertUpdate(
@@ -2786,6 +2820,148 @@ public class TestHiveIntegrationSmokeTest
                         "(null, null, null, null, 1.0E0, null, null)");
 
         assertUpdate(format("DROP TABLE %s", tableName));
+    }
+
+    @Test
+    public void testCreateAvroTableWithSchemaUrl()
+            throws Exception
+    {
+        String tableName = "test_create_avro_table_with_schema_url";
+        File schemaFile = createAvroSchemaFile();
+
+        String createTableSql = getAvroCreateTableSql(tableName, schemaFile.getAbsolutePath());
+        String expectedShowCreateTable = getAvroCreateTableSql(tableName, schemaFile.toURI().toString());
+
+        assertUpdate(createTableSql);
+
+        try {
+            MaterializedResult actual = computeActual(format("SHOW CREATE TABLE %s", tableName));
+            assertEquals(actual.getOnlyValue(), expectedShowCreateTable);
+        }
+        finally {
+            assertUpdate(format("DROP TABLE %s", tableName));
+            verify(schemaFile.delete(), "cannot delete temporary file: %s", schemaFile);
+        }
+    }
+
+    @Test
+    public void testAlterAvroTableWithSchemaUrl()
+            throws Exception
+    {
+        testAlterAvroTableWithSchemaUrl(true, true, true);
+    }
+
+    protected void testAlterAvroTableWithSchemaUrl(boolean renameColumn, boolean addColumn, boolean dropColumn)
+            throws Exception
+    {
+        String tableName = "test_alter_avro_table_with_schema_url";
+        File schemaFile = createAvroSchemaFile();
+
+        assertUpdate(getAvroCreateTableSql(tableName, schemaFile.getAbsolutePath()));
+
+        try {
+            if (renameColumn) {
+                assertQueryFails(format("ALTER TABLE %s RENAME COLUMN dummy_col TO new_dummy_col", tableName), "ALTER TABLE not supported when Avro schema url is set");
+            }
+            if (addColumn) {
+                assertQueryFails(format("ALTER TABLE %s ADD COLUMN new_dummy_col VARCHAR", tableName), "ALTER TABLE not supported when Avro schema url is set");
+            }
+            if (dropColumn) {
+                assertQueryFails(format("ALTER TABLE %s DROP COLUMN dummy_col", tableName), "ALTER TABLE not supported when Avro schema url is set");
+            }
+        }
+        finally {
+            assertUpdate(format("DROP TABLE %s", tableName));
+            verify(schemaFile.delete(), "cannot delete temporary file: %s", schemaFile);
+        }
+    }
+
+    private String getAvroCreateTableSql(String tableName, String schemaFile)
+    {
+        return format("CREATE TABLE %s.%s.%s (\n" +
+                        "   dummy_col varchar,\n" +
+                        "   another_dummy_col varchar\n" +
+                        ")\n" +
+                        "WITH (\n" +
+                        "   avro_schema_url = '%s',\n" +
+                        "   format = 'AVRO'\n" +
+                        ")",
+                getSession().getCatalog().get(),
+                getSession().getSchema().get(),
+                tableName,
+                schemaFile);
+    }
+
+    private static File createAvroSchemaFile()
+            throws Exception
+    {
+        File schemaFile = File.createTempFile("avro_single_column-", ".avsc");
+        String schema = "{\n" +
+                "  \"namespace\": \"com.facebook.test\",\n" +
+                "  \"name\": \"single_column\",\n" +
+                "  \"type\": \"record\",\n" +
+                "  \"fields\": [\n" +
+                "    { \"name\":\"string_col\", \"type\":\"string\" }\n" +
+                "]}";
+        asCharSink(schemaFile, UTF_8).write(schema);
+        return schemaFile;
+    }
+
+    @Test
+    public void testCreateOrcTableWithSchemaUrl()
+            throws Exception
+    {
+        @Language("SQL") String createTableSql = format("" +
+                        "CREATE TABLE %s.%s.test_orc (\n" +
+                        "   dummy_col varchar\n" +
+                        ")\n" +
+                        "WITH (\n" +
+                        "   avro_schema_url = 'dummy.avsc',\n" +
+                        "   format = 'ORC'\n" +
+                        ")",
+                getSession().getCatalog().get(),
+                getSession().getSchema().get());
+
+        assertQueryFails(createTableSql, "Cannot specify avro_schema_url table property for storage format: ORC");
+    }
+
+    @Test
+    public void testCtasFailsWithAvroSchemaUrl()
+            throws Exception
+    {
+        @Language("SQL") String ctasSqlWithoutData = "CREATE TABLE create_avro\n" +
+                "WITH (avro_schema_url = 'dummy_schema')\n" +
+                "AS SELECT 'dummy_value' as dummy_col WITH NO DATA";
+
+        assertQueryFails(ctasSqlWithoutData, "CREATE TABLE AS not supported when Avro schema url is set");
+
+        @Language("SQL") String ctasSql = "CREATE TABLE create_avro\n" +
+                "WITH (avro_schema_url = 'dummy_schema')\n" +
+                "AS SELECT * FROM (VALUES('a')) t (a)";
+
+        assertQueryFails(ctasSql, "CREATE TABLE AS not supported when Avro schema url is set");
+    }
+
+    @Test
+    public void testBucketedTablesFailWithAvroSchemaUrl()
+            throws Exception
+    {
+        @Language("SQL") String createSql = "CREATE TABLE create_avro (dummy VARCHAR)\n" +
+                "WITH (avro_schema_url = 'dummy_schema',\n" +
+                "      bucket_count = 2, bucketed_by=ARRAY['dummy'])";
+
+        assertQueryFails(createSql, "Bucketing/Partitioning columns not supported when Avro schema url is set");
+    }
+
+    @Test
+    public void testPartitionedTablesFailWithAvroSchemaUrl()
+            throws Exception
+    {
+        @Language("SQL") String createSql = "CREATE TABLE create_avro (dummy VARCHAR)\n" +
+                "WITH (avro_schema_url = 'dummy_schema',\n" +
+                "      partitioned_by=ARRAY['dummy'])";
+
+        assertQueryFails(createSql, "Bucketing/Partitioning columns not supported when Avro schema url is set");
     }
 
     private Session getParallelWriteSession()

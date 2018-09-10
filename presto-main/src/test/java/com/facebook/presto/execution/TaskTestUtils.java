@@ -37,7 +37,6 @@ import com.facebook.presto.operator.PagesIndex;
 import com.facebook.presto.operator.StageExecutionStrategy;
 import com.facebook.presto.operator.index.IndexJoinLookupStats;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
-import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.TestingTypeManager;
 import com.facebook.presto.spiller.GenericSpillerFactory;
 import com.facebook.presto.split.PageSinkManager;
@@ -103,10 +102,7 @@ public final class TaskTestUtils
                     TABLE_SCAN_NODE_ID,
                     new TableHandle(CONNECTOR_ID, new TestingTableHandle()),
                     ImmutableList.of(SYMBOL),
-                    ImmutableMap.of(SYMBOL, new TestingColumnHandle("column", 0, BIGINT)),
-                    Optional.empty(),
-                    TupleDomain.all(),
-                    null),
+                    ImmutableMap.of(SYMBOL, new TestingColumnHandle("column", 0, BIGINT))),
             ImmutableMap.of(SYMBOL, VARCHAR),
             SOURCE_DISTRIBUTION,
             ImmutableList.of(TABLE_SCAN_NODE_ID),
@@ -178,6 +174,8 @@ public final class TaskTestUtils
                 new NodeVersion("testVersion"),
                 new SessionPropertyManager(),
                 metadata,
-                new QueryMonitorConfig());
+                new QueryMonitorConfig(),
+                new InMemoryNodeManager(),
+                new NodeSchedulerConfig().setIncludeCoordinator(true));
     }
 }
