@@ -115,13 +115,13 @@ public class MemoryAwareQueryExecution
     @Override
     public Optional<ErrorCode> getErrorCode()
     {
-        return Optional.ofNullable(getQueryInfo().getFailureInfo()).map(ExecutionFailureInfo::getErrorCode);
+        return delegate.getErrorCode();
     }
 
     @Override
     public BasicQueryInfo getBasicQueryInfo()
     {
-        return new BasicQueryInfo(getQueryInfo());
+        return delegate.getBasicQueryInfo();
     }
 
     @Override
@@ -168,7 +168,9 @@ public class MemoryAwareQueryExecution
                     startedWaiting = true;
                     delegate.startWaitingForResources();
                     memoryManager.addChangeListener(GENERAL_POOL, none -> start());
-                    memoryManager.addChangeListener(RESERVED_POOL, none -> start());
+                    if (memoryManager.memoryPoolExists(RESERVED_POOL)) {
+                        memoryManager.addChangeListener(RESERVED_POOL, none -> start());
+                    }
                 }
             }
             catch (Throwable e) {
